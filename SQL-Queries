@@ -1,0 +1,208 @@
+-- Using PGAdmin to perform SQL Queries on the database.
+
+select * from coloradofastfood
+select * from coloradoschools
+SELECT ST_AsText(wkb_geometry), ST_SRID(wkb_geometry) FROM coloradodenver -- county = DENVER
+SELECT ST_AsText(wkb_geometry), ST_SRID(wkb_geometry) FROM kentuckylouisville -- seat2 = LOUISVILLE
+select * from kentuckyfastfood
+select * from kentuckyschools
+
+-- 1. Remove fast food  outside of Denver
+
+BEGIN;
+SELECT COFF.ogc_fid, COFF.name, CODE.ogc_fid from coloradofastfood as COFF, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COFF.wkb_geometry);
+
+DELETE FROM coloradofastfood WHERE ogc_fid in
+(SELECT COFF.ogc_fid from coloradofastfood as COFF, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COFF.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 2. Remove schools outside of Denver
+
+BEGIN;
+SELECT COSCH.ogc_fid, COSCH.fclass, CODE.ogc_fid from coloradoschools as COSCH, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COSCH.wkb_geometry);
+
+DELETE FROM coloradoschools WHERE ogc_fid in
+(SELECT COSCH.ogc_fid from coloradoschools as COSCH, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COSCH.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 3. Remove fast food outside of Louisville
+
+BEGIN;
+SELECT KYFF.ogc_fid, KYFF.fclass, KYLV.ogc_fid from kentuckyfastfood as KYFF, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYFF.wkb_geometry);
+
+DELETE FROM kentuckyfastfood WHERE ogc_fid in
+(SELECT KYFF.ogc_fid from kentuckyfastfood as KYFF, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYFF.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 4. Remove schools outside of Louisville
+
+BEGIN;
+SELECT KYSCH.ogc_fid, KYSCH.fclass, KYLV.ogc_fid from kentuckyschools as KYSCH, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYSCH.wkb_geometry);
+
+DELETE FROM kentuckySCHOOLS WHERE ogc_fid in
+(SELECT KYsch.ogc_fid from kentuckyschools as KYSCH, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYSCH.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 5. Distance between schools and fastfood in KY 500
+
+SELECT KYFF.ogc_fid as fastfoodPK, KYFF.name, KYFF.osm_id, KYSCH.ogc_fid as schoolsPK, KYSCH.name, KYSCH.osm_id,
+ST_Transform(KYFF.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) as TheDist
+FROM kentuckyfastfood as KYFF, kentuckyschools as KYSCH 
+WHERE ST_Transform(KYFF.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) <= 500
+ORDER BY thedist asc
+
+-- 6. 1000 Distance between schools and fastfood in KY 1000
+SELECT KYFF.ogc_fid as fastfoodPK, KYFF.name, KYFF.osm_id, KYSCH.ogc_fid as schoolsPK, KYSCH.name, KYSCH.osm_id,
+ST_Transform(KYFF.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) as TheDist
+FROM kentuckyfastfood as KYFF, kentuckyschools as KYSCH 
+WHERE ST_Transform(KYFF.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) <= 1000
+ORDER BY thedist asc
+
+-- 7. Distance between schools and fastfood in CO 500
+SELECT COFF.ogc_fid as fastfoodPK, COFF.name, COFF.osm_id, COSCH.ogc_fid as schoolsPK, COSCH.name, COSCH.osm_id,
+ST_Transform(COFF.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) as TheDist
+FROM coloradofastfood as COFF, coloradoschools as COSCH
+WHERE ST_Transform(COFF.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) <= 500
+ORDER BY thedist asc
+
+-- 8. Distance between schools and fastfood in CO 1000
+SELECT COFF.ogc_fid as fastfoodPK, COFF.name, COFF.osm_id, COSCH.ogc_fid as schoolsPK, COSCH.name, COSCH.osm_id,
+ST_Transform(COFF.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) as TheDist
+FROM coloradofastfood as COFF, coloradoschools as COSCH
+WHERE ST_Transform(COFF.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) <= 1000
+ORDER BY thedist asc
+
+-- 8. Further analysis
+-- How many schools that contain no fast_food restaurants within 500m
+-- ( 16/189 schools contain)
+DROP VIEW IF EXISTS KY500MVIEW;
+CREATE OR REPLACE VIEW KY500MVIEW AS
+SELECT KYSCH.ogc_fid as schoolsPK, KYFF.name as KYFFname,  KYSCH.name ,
+KYSCH.wkb_geometry as SCHgeometry
+FROM kentuckyfastfood as KYFF, kentuckyschoolsbuffer500_4326 as KYSCH
+WHERE ST_Intersects(KYSCH.wkb_geometry,KYFF.wkb_geometry)
+ORDER BY Schoolspk desc
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM KY500MVIEW
+
+-- 9. KY within 1000m
+-- (46/189 schools contain fast food restaurants )
+DROP VIEW IF EXISTS KY1000MVIEW;
+CREATE OR REPLACE VIEW KY1000MVIEW AS
+SELECT KYFF.ogc_fid as fastfoodPK, KYFF.name as KYname,  KYSCH.ogc_fid as schoolsPK, KYSCH.name, 
+KYSCH.wkb_geometry as SCHgeometry
+FROM kentuckyfastfood as KYFF, kentuckyschoolsbuffer1000_4326 as KYSCH
+WHERE ST_Intersects(KYSCH.wkb_geometry,KYFF.wkb_geometry)
+ORDER BY Schoolspk
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM KY1000MVIEW
+
+-- 10. How many schools that contain fast food within 500m in Denver
+-- (20/180)
+DROP VIEW IF EXISTS CO500MVIEW;
+CREATE OR REPLACE VIEW CO500MVIEW AS
+SELECT COFF.ogc_fid as fastfoodPK, COFF.name as COname,  COSCH.ogc_fid as schoolsPK, COSCH.name, 
+COSCH.wkb_geometry as SCHgeometry
+FROM coloradofastfood as COFF, coloradoschoolsbuffer500_4326 as COSCH
+WHERE ST_Intersects(COSCH.wkb_geometry,COFF.wkb_geometry)
+ORDER BY schoolsPK
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM CO500MVIEW
+
+-- 11. How many schools that contain fast food within 1000m in Denver
+-- (59/180)
+DROP VIEW IF EXISTS CO1000MVIEW;
+CREATE OR REPLACE VIEW CO1000MVIEW AS
+SELECT COFF.ogc_fid as fastfoodPK, COFF.name as COname,  COSCH.ogc_fid as schoolsPK, COSCH.name, 
+COSCH.wkb_geometry as SCHgeometry, COFF.wkb_geometry as FFgeometry
+FROM coloradofastfood as COFF, coloradoschoolsbuffer1000_4326 as COSCH
+WHERE ST_Intersects(COSCH.wkb_geometry,COFF.wkb_geometry)
+ORDER BY schoolsPK
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM CO1000MVIEW
+
+-- 12. Remove Parks outside of Denver
+BEGIN;
+SELECT COPA.ogc_fid, COPA.name, CODE.ogc_fid from coloradoparks as COPA, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COPA.wkb_geometry);
+
+DELETE FROM coloradoparks WHERE ogc_fid in
+(SELECT COPA.ogc_fid from coloradoparks as COPA, coloradodenver as CODE
+	WHERE NOT ST_Contains(CODE.wkb_geometry,COPA.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 13 Distance between schools and parks under 1km (1067 cases where a school is within 1km of a park)
+SELECT COPA.ogc_fid as ParkPK, COPA.name, COPA.osm_id, COSCH.ogc_fid as schoolsPK, COSCH.name, COSCH.osm_id,
+ST_Transform(COPA.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) as TheDist
+FROM coloradoparks as COPA, coloradoschools as COSCH
+WHERE ST_Transform(COPA.wkb_geometry,32613) <-> ST_Transform(COSCH.wkb_geometry,32613) <= 1000
+ORDER BY thedist asc
+
+
+-- 14. How many schools are near within 1000m of a school (141/180) schools
+DROP VIEW IF EXISTS COPA1000MVIEW;
+CREATE OR REPLACE VIEW COPA1000MVIEW AS
+SELECT COPA.ogc_fid as parksPK, COPA.name as parkname,  COSCH.ogc_fid as schoolsPK, COSCH.name, 
+COSCH.wkb_geometry as SCHgeometry
+FROM coloradoparks as COPA, coloradoschoolsbuffer1000_4326 as COSCH
+WHERE ST_Intersects(COSCH.wkb_geometry,COPA.wkb_geometry)
+ORDER BY schoolsPK
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM COPA1000MVIEW
+
+
+-- 15. Remove Parks outside of Louisville
+BEGIN;
+SELECT KYPA.ogc_fid, KYPA.fclass, KYLV.ogc_fid from kentuckyparks as KYPA, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYPA.wkb_geometry);
+
+DELETE FROM kentuckyparks WHERE ogc_fid in
+(SELECT KYPA.ogc_fid from kentuckyPARKS as KYPA, kentuckylouisville as KYLV
+	WHERE NOT ST_Contains(KYLV.wkb_geometry,KYPA.wkb_geometry));
+COMMIT;
+ROLLBACK;
+
+-- 16. Distance between schools and parks in Louisville (362 cases where a school is within 1km of a park)
+
+SELECT KYPA.ogc_fid as parksPK, KYPA.name, KYPA.osm_id, KYSCH.ogc_fid as schoolsPK, KYSCH.name, KYSCH.osm_id,
+ST_Transform(KYPA.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) as TheDist
+FROM kentuckyparks as KYPA, kentuckyschools as KYSCH 
+WHERE ST_Transform(KYPA.wkb_geometry,32616) <-> ST_Transform(KYSCH.wkb_geometry,32616) <= 1000
+ORDER BY thedist asc
+
+-- 17. How many schools have a park within 1km in Louisville (79/189)
+DROP VIEW IF EXISTS KYPA1000MVIEW;
+CREATE OR REPLACE VIEW KYPA1000MVIEW AS
+SELECT KYPA.ogc_fid as parksPK, KYPA.name as KYname,  KYSCH.ogc_fid as schoolsPK, KYSCH.name, 
+KYSCH.wkb_geometry as SCHgeometry
+FROM kentuckyparks as KYPA, kentuckyschoolsbuffer1000_4326 as KYSCH
+WHERE ST_Intersects(KYSCH.wkb_geometry,KYPA.wkb_geometry)
+ORDER BY Schoolspk
+
+SELECT COUNT(DISTINCT schoolspk) AS numberofschools FROM KYPA1000MVIEW
+
+
+
+select * from coloradoschools
+select * from kentuckyschools
+select * from kentuckyparks
+select * from kentuckyfastfood
+select * from coloradoschoolsbuffer1000_4326
+SELECT * FROM coloradofastfood -- county = DENVER
+SELECT ST_SRID(ST_SetSRID(kentuckyschoolsbuffer500,4326)) FROM kentuckyschoolsbuffer500 -- county = DENVER
+
+SELECT ST_AsText(wkb_geometry), ST_SRID(wkb_geometry) FROM coloradoschoolsbuffer1000_4326 -- county = DENVER
+SELECT ST_AsText(wkb_geometry), ST_SRID(wkb_geometry) FROM coloradofastfood 
