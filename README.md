@@ -63,3 +63,4 @@ To conclude:
 - Fast food location itself does not look to be a factor in obesity rates among children.
 - The location of parks where children can play and exercise can explain the difference in obesity rates.
 
+_A 7 minute presentation of this project is included within this repository that showcases the method and results in more detail._
